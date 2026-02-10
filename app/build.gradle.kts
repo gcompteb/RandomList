@@ -4,11 +4,11 @@ plugins {
 }
 
 android {
-    namespace = "com.diceapp"
+    namespace = "com.randomlist"
     compileSdk = 34
 
     defaultConfig {
-        applicationId = "com.diceapp"
+        applicationId = "com.randomlist"
         minSdk = 24
         targetSdk = 34
         versionCode = 1

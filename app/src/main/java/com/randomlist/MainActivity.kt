@@ -1,4 +1,4 @@
-package com.diceapp
+package com.randomlist
 
 import android.content.Context
 import android.os.Bundle
@@ -102,7 +102,7 @@ class MainActivity : ComponentActivity() {
 }
 
 fun saveLists(context: Context, lists: List<CustomList>) {
-    val prefs = context.getSharedPreferences("dice_app", Context.MODE_PRIVATE)
+    val prefs = context.getSharedPreferences("random_list", Context.MODE_PRIVATE)
     val jsonArray = JSONArray()
     lists.forEach { list ->
         val jsonObject = JSONObject()
@@ -116,7 +116,7 @@ fun saveLists(context: Context, lists: List<CustomList>) {
 }
 
 fun loadLists(context: Context): List<CustomList> {
-    val prefs = context.getSharedPreferences("dice_app", Context.MODE_PRIVATE)
+    val prefs = context.getSharedPreferences("random_list", Context.MODE_PRIVATE)
     val jsonString = prefs.getString("custom_lists", null) ?: return emptyList()
     val jsonArray = JSONArray(jsonString)
     val lists = mutableListOf<CustomList>()

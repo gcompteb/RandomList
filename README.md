@@ -1,43 +1,51 @@
-# 🎲 Dau - App Android
+# RandomList
 
-Una aplicació Android senzilla i elegant per llançar un dau virtual.
+An Android app to create custom lists and pick random elements from them.
 
-## Característiques
+## Features
 
-- **Interfície moderna** amb Jetpack Compose i Material 3
-- **Animacions fluides** de rotació i escala quan es llança el dau
-- **Disseny atractiu** amb gradients i colors vibrants
-- **Interacció dual**: toca el dau directament o utilitza el botó
+- Create unlimited custom lists with any items
+- Random selection with smooth animations
+- Edit and delete lists
+- Color-coded lists
+- Multi-language support: English, Catalan, Spanish
 
-## Requisits
+## Tech Stack
 
-- Android Studio Hedgehog (2023.1.1) o superior
+- **Kotlin** + **Jetpack Compose**
+- **Material 3** design system
+- **Coroutines** for async animations
+- Local persistence with **SharedPreferences**
+
+## Requirements
+
+- Android Studio Hedgehog (2023.1.1) or later
 - JDK 17
 - Android SDK 34
 
-## Instal·lació
+## Setup
 
-1. Obre Android Studio
-2. Selecciona "Open" i navega fins al directori `DiceApp`
-3. Espera que Gradle sincronitzi el projecte
-4. Connecta un dispositiu Android o inicia un emulador
-5. Prem "Run" (▶️)
+1. Open Android Studio
+2. Select "Open" and navigate to the `RandomList` directory
+3. Wait for Gradle to sync the project
+4. Connect an Android device or start an emulator
+5. Press "Run" (▶️)
 
-## Estructura del projecte
+## Project Structure
 
 ```
-DiceApp/
+RandomList/
 ├── app/
 │   ├── src/main/
-│   │   ├── java/com/diceapp/
-│   │   │   └── MainActivity.kt      # Activitat principal amb Compose
+│   │   ├── java/com/randomlist/
+│   │   │   └── MainActivity.kt
 │   │   ├── res/
-│   │   │   ├── values/
-│   │   │   │   ├── strings.xml
-│   │   │   │   ├── colors.xml
-│   │   │   │   └── themes.xml
+│   │   │   ├── values/strings.xml          (English - default)
+│   │   │   ├── values-ca/strings.xml       (Catalan)
+│   │   │   ├── values-es/strings.xml       (Spanish)
+│   │   │   ├── values/colors.xml
+│   │   │   ├── values/themes.xml
 │   │   │   └── drawable/
-│   │   │       └── ic_launcher_foreground.xml
 │   │   └── AndroidManifest.xml
 │   └── build.gradle.kts
 ├── build.gradle.kts
@@ -45,21 +53,6 @@ DiceApp/
 └── gradle.properties
 ```
 
-## Tecnologies
-
-- **Kotlin** - Llenguatge de programació
-- **Jetpack Compose** - UI toolkit modern
-- **Material 3** - Sistema de disseny
-- **Coroutines** - Gestió d'animacions asíncrones
-
-## Com funciona
-
-1. L'usuari toca el dau o prem el botó "Tirar Dau"
-2. S'inicia una animació de rotació (720°) i escala
-3. El valor del dau canvia ràpidament 10 vegades per simular el llançament
-4. Es mostra el resultat final (1-6)
-
-## Llicència
+## License
 
 MIT License
-
