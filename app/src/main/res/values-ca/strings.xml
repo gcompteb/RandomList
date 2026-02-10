@@ -1,0 +1,26 @@
+<?xml version="1.0" encoding="utf-8"?>
+<resources>
+    <string name="app_name">RandomList</string>
+    <string name="subtitle">Tria elements aleatòriament</string>
+    <string name="empty_state_title">Cap llista encara</string>
+    <string name="empty_state_description">Crea la teva primera llista\nprement el botó +</string>
+    <string name="items_count">%1$d elements</string>
+    <string name="more_items">+ %1$d més</string>
+    <string name="new_list_title">Nova llista</string>
+    <string name="label_name">NOM</string>
+    <string name="placeholder_list_name">Ex: Restaurants favorits</string>
+    <string name="label_elements">ELEMENTS</string>
+    <string name="placeholder_write_element">Escriu un element…</string>
+    <string name="scroll_down_hint">↓ Desplaça per veure més</string>
+    <string name="button_cancel">Anul·la</string>
+    <string name="button_create_list">Crear llista</string>
+    <string name="delete_list_title">Eliminar llista?</string>
+    <string name="delete_list_message">S\'eliminarà \"%1$s\" permanentment.</string>
+    <string name="button_delete">Eliminar</string>
+    <string name="button_save">Desar</string>
+    <string name="label_result">RESULTAT</string>
+    <string name="tap_to_choose">Toca per triar</string>
+    <string name="rolling">Triant…</string>
+    <string name="roll_random">Triar aleatori</string>
+    <string name="placeholder_new_element">Nou element…</string>
+</resources>
