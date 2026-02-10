@@ -23,4 +23,8 @@
     <string name="rolling">Triant…</string>
     <string name="roll_random">Triar aleatori</string>
     <string name="placeholder_new_element">Nou element…</string>
+    <string name="sign_in_google">Inicia sessió amb Google</string>
+    <string name="sign_out">Tanca sessió</string>
+    <string name="signing_in">Iniciant sessió…</string>
+    <string name="sign_in_error">Error d\'inici de sessió. Torna-ho a provar.</string>
 </resources>

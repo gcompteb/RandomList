@@ -23,4 +23,8 @@
     <string name="rolling">Choosing…</string>
     <string name="roll_random">Random pick</string>
     <string name="placeholder_new_element">New element…</string>
+    <string name="sign_in_google">Sign in with Google</string>
+    <string name="sign_out">Sign out</string>
+    <string name="signing_in">Signing in…</string>
+    <string name="sign_in_error">Sign-in failed. Please try again.</string>
 </resources>

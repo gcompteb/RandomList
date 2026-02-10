@@ -23,4 +23,8 @@
     <string name="rolling">Eligiendo…</string>
     <string name="roll_random">Elegir aleatorio</string>
     <string name="placeholder_new_element">Nuevo elemento…</string>
+    <string name="sign_in_google">Iniciar sesión con Google</string>
+    <string name="sign_out">Cerrar sesión</string>
+    <string name="signing_in">Iniciando sesión…</string>
+    <string name="sign_in_error">Error al iniciar sesión. Inténtalo de nuevo.</string>
 </resources>

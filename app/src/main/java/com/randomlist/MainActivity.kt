@@ -2,9 +2,12 @@ package com.randomlist
 
 import android.content.Context
 import android.os.Bundle
+import android.util.Log
 import androidx.activity.ComponentActivity
+import androidx.activity.compose.rememberLauncherForActivityResult
 import androidx.activity.compose.setContent
 import androidx.activity.enableEdgeToEdge
+import androidx.activity.result.contract.ActivityResultContracts
 import androidx.compose.animation.animateColorAsState
 import androidx.compose.animation.core.Animatable
 import androidx.compose.animation.core.tween
@@ -34,8 +37,13 @@ import androidx.compose.foundation.text.KeyboardActions
 import androidx.compose.foundation.text.KeyboardOptions
 import androidx.compose.material3.Button
 import androidx.compose.material3.ButtonDefaults
+import androidx.compose.material3.CircularProgressIndicator
+import androidx.compose.material3.Icon
+import androidx.compose.material3.IconButton
 import androidx.compose.material3.Text
 import androidx.compose.runtime.Composable
+import androidx.compose.runtime.DisposableEffect
+import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.derivedStateOf
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateListOf
@@ -65,8 +73,18 @@ import androidx.compose.ui.res.stringResource
 import androidx.compose.ui.unit.sp
 import androidx.compose.ui.window.Dialog
 import androidx.compose.ui.window.DialogProperties
+import androidx.credentials.CredentialManager
+import androidx.credentials.GetCredentialRequest
+import androidx.credentials.exceptions.GetCredentialException
+import com.google.android.libraries.identity.googleid.GetGoogleIdOption
+import com.google.android.libraries.identity.googleid.GoogleIdTokenCredential
+import com.google.firebase.auth.FirebaseAuth
+import com.google.firebase.auth.GoogleAuthProvider
+import com.google.firebase.firestore.FirebaseFirestore
+import com.google.firebase.firestore.ListenerRegistration
 import kotlinx.coroutines.delay
 import kotlinx.coroutines.launch
+import kotlinx.coroutines.tasks.await
 import org.json.JSONArray
 import org.json.JSONObject
 import kotlin.random.Random
@@ -101,48 +119,250 @@ class MainActivity : ComponentActivity() {
     }
 }
 
-fun saveLists(context: Context, lists: List<CustomList>) {
-    val prefs = context.getSharedPreferences("random_list", Context.MODE_PRIVATE)
-    val jsonArray = JSONArray()
-    lists.forEach { list ->
-        val jsonObject = JSONObject()
-        jsonObject.put("id", list.id)
-        jsonObject.put("name", list.name)
-        jsonObject.put("items", JSONArray(list.items))
-        jsonObject.put("color", list.color.value.toLong())
-        jsonArray.put(jsonObject)
-    }
-    prefs.edit().putString("custom_lists", jsonArray.toString()).apply()
+fun saveListToFirestore(list: CustomList) {
+    val userId = FirebaseAuth.getInstance().currentUser?.uid ?: return
+    val db = FirebaseFirestore.getInstance()
+    
+    val data = hashMapOf(
+        "name" to list.name,
+        "items" to list.items,
+        "color" to list.color.value.toLong()
+    )
+    
+    db.collection("users").document(userId)
+        .collection("lists").document(list.id)
+        .set(data)
 }
 
-fun loadLists(context: Context): List<CustomList> {
-    val prefs = context.getSharedPreferences("random_list", Context.MODE_PRIVATE)
-    val jsonString = prefs.getString("custom_lists", null) ?: return emptyList()
-    val jsonArray = JSONArray(jsonString)
-    val lists = mutableListOf<CustomList>()
-    for (i in 0 until jsonArray.length()) {
-        val jsonObject = jsonArray.getJSONObject(i)
-        val itemsArray = jsonObject.getJSONArray("items")
-        val items = mutableListOf<String>()
-        for (j in 0 until itemsArray.length()) {
-            items.add(itemsArray.getString(j))
+fun deleteListFromFirestore(listId: String) {
+    val userId = FirebaseAuth.getInstance().currentUser?.uid ?: return
+    val db = FirebaseFirestore.getInstance()
+    
+    db.collection("users").document(userId)
+        .collection("lists").document(listId)
+        .delete()
+}
+
+suspend fun migrateLocalDataToFirestore(context: Context) {
+    val userId = FirebaseAuth.getInstance().currentUser?.uid ?: return
+    val db = FirebaseFirestore.getInstance()
+    
+    val existingLists = db.collection("users").document(userId)
+        .collection("lists").get().await()
+    
+    if (!existingLists.isEmpty) return
+    
+    val prefsKeys = listOf("random_list", "dice_app")
+    val listsToMigrate = mutableListOf<CustomList>()
+    
+    for (key in prefsKeys) {
+        val prefs = context.getSharedPreferences(key, Context.MODE_PRIVATE)
+        val jsonString = prefs.getString("custom_lists", null)
+        if (jsonString != null) {
+            try {
+                val jsonArray = JSONArray(jsonString)
+                for (i in 0 until jsonArray.length()) {
+                    val jsonObject = jsonArray.getJSONObject(i)
+                    val itemsArray = jsonObject.getJSONArray("items")
+                    val items = mutableListOf<String>()
+                    for (j in 0 until itemsArray.length()) {
+                        items.add(itemsArray.getString(j))
+                    }
+                    listsToMigrate.add(
+                        CustomList(
+                            id = jsonObject.optString("id", UUID.randomUUID().toString()),
+                            name = jsonObject.getString("name"),
+                            items = items,
+                            color = Color(jsonObject.getLong("color").toULong())
+                        )
+                    )
+                }
+            } catch (e: Exception) {
+                Log.e("Migration", "Error migrating data", e)
+            }
         }
-        lists.add(
-            CustomList(
-                id = jsonObject.getString("id"),
-                name = jsonObject.getString("name"),
-                items = items,
-                color = Color(jsonObject.getLong("color").toULong())
-            )
-        )
     }
-    return lists
+    
+    listsToMigrate.forEach { list ->
+        saveListToFirestore(list)
+    }
+}
+
+@Composable
+fun LoginScreen(onSignInSuccess: () -> Unit) {
+    val context = LocalContext.current
+    val scope = rememberCoroutineScope()
+    var isLoading by remember { mutableStateOf(false) }
+    var errorMessage by remember { mutableStateOf<String?>(null) }
+
+    val backgroundGradient = Brush.verticalGradient(
+        colors = listOf(
+            Color(0xFF1a1a2e),
+            Color(0xFF16213e),
+            Color(0xFF0f3460)
+        )
+    )
+
+    Box(
+        modifier = Modifier
+            .fillMaxSize()
+            .background(backgroundGradient),
+        contentAlignment = Alignment.Center
+    ) {
+        Column(
+            horizontalAlignment = Alignment.CenterHorizontally,
+            modifier = Modifier.padding(32.dp)
+        ) {
+            Text(
+                text = "🎲",
+                fontSize = 80.sp
+            )
+            Spacer(modifier = Modifier.height(24.dp))
+            Text(
+                text = stringResource(R.string.app_name),
+                fontSize = 32.sp,
+                fontWeight = FontWeight.Bold,
+                color = Color.White
+            )
+            Spacer(modifier = Modifier.height(8.dp))
+            Text(
+                text = stringResource(R.string.subtitle),
+                fontSize = 16.sp,
+                color = Color(0xFF8b8b8b),
+                textAlign = TextAlign.Center
+            )
+            
+            Spacer(modifier = Modifier.height(64.dp))
+            
+            Button(
+                onClick = {
+                    scope.launch {
+                        isLoading = true
+                        errorMessage = null
+                        try {
+                            val credentialManager = CredentialManager.create(context)
+                            val googleIdOption = GetGoogleIdOption.Builder()
+                                .setFilterByAuthorizedAccounts(false)
+                                .setServerClientId("446367114682-rc6b4rt69tsrj33276k0ic3n17aamp0m.apps.googleusercontent.com")
+                                .build()
+                            
+                            val request = GetCredentialRequest.Builder()
+                                .addCredentialOption(googleIdOption)
+                                .build()
+                            
+                            val result = credentialManager.getCredential(context, request)
+                            val credential = result.credential
+                            
+                            val googleIdTokenCredential = GoogleIdTokenCredential.createFrom(credential.data)
+                            val googleIdToken = googleIdTokenCredential.idToken
+                            
+                            val firebaseCredential = GoogleAuthProvider.getCredential(googleIdToken, null)
+                            FirebaseAuth.getInstance().signInWithCredential(firebaseCredential).await()
+                            
+                            migrateLocalDataToFirestore(context)
+                            onSignInSuccess()
+                        } catch (e: Exception) {
+                            Log.e("LoginScreen", "Sign-in failed", e)
+                            errorMessage = context.getString(R.string.sign_in_error)
+                        } finally {
+                            isLoading = false
+                        }
+                    }
+                },
+                enabled = !isLoading,
+                colors = ButtonDefaults.buttonColors(containerColor = Color(0xFFe94560)),
+                shape = RoundedCornerShape(16.dp),
+                modifier = Modifier
+                    .fillMaxWidth()
+                    .height(56.dp)
+            ) {
+                if (isLoading) {
+                    CircularProgressIndicator(color = Color.White, modifier = Modifier.size(24.dp))
+                } else {
+                    Text(
+                        text = stringResource(R.string.sign_in_google),
+                        fontSize = 17.sp,
+                        fontWeight = FontWeight.Bold
+                    )
+                }
+            }
+            
+            if (errorMessage != null) {
+                Spacer(modifier = Modifier.height(16.dp))
+                Text(
+                    text = errorMessage!!,
+                    color = Color(0xFFe94560),
+                    fontSize = 14.sp,
+                    textAlign = TextAlign.Center
+                )
+            }
+        }
+    }
 }
 
 @Composable
 fun MainApp() {
+    val auth = FirebaseAuth.getInstance()
+    var currentUser by remember { mutableStateOf(auth.currentUser) }
     val context = LocalContext.current
-    val customLists = remember { mutableStateListOf<CustomList>().also { it.addAll(loadLists(context)) } }
+    val scope = rememberCoroutineScope()
+    
+    if (currentUser == null) {
+        LoginScreen(onSignInSuccess = {
+            currentUser = auth.currentUser
+        })
+    } else {
+        AuthenticatedApp(onSignOut = {
+            auth.signOut()
+            currentUser = null
+        })
+    }
+}
+
+@Composable
+fun AuthenticatedApp(onSignOut: () -> Unit) {
+    val context = LocalContext.current
+    val customLists = remember { mutableStateListOf<CustomList>() }
+    var listenerRegistration by remember { mutableStateOf<ListenerRegistration?>(null) }
+    
+    LaunchedEffect(Unit) {
+        val userId = FirebaseAuth.getInstance().currentUser?.uid ?: return@LaunchedEffect
+        val db = FirebaseFirestore.getInstance()
+        
+        listenerRegistration = db.collection("users").document(userId)
+            .collection("lists")
+            .addSnapshotListener { snapshot, error ->
+                if (error != null) {
+                    Log.e("Firestore", "Listen failed", error)
+                    return@addSnapshotListener
+                }
+                
+                if (snapshot != null) {
+                    customLists.clear()
+                    for (doc in snapshot.documents) {
+                        val data = doc.data ?: continue
+                        try {
+                            customLists.add(
+                                CustomList(
+                                    id = doc.id,
+                                    name = data["name"] as? String ?: "",
+                                    items = (data["items"] as? List<*>)?.filterIsInstance<String>() ?: emptyList(),
+                                    color = Color((data["color"] as? Long ?: 0L).toULong())
+                                )
+                            )
+                        } catch (e: Exception) {
+                            Log.e("Firestore", "Error parsing document", e)
+                        }
+                    }
+                }
+            }
+    }
+    
+    DisposableEffect(Unit) {
+        onDispose {
+            listenerRegistration?.remove()
+        }
+    }
     
     val backgroundGradient = Brush.verticalGradient(
         colors = listOf(
@@ -162,9 +382,8 @@ fun MainApp() {
             
             ListsScreen(
                 lists = customLists,
-                onListsChanged = { 
-                    saveLists(context, customLists)
-                }
+                onListsChanged = {},
+                onSignOut = onSignOut
             )
         }
     }
@@ -173,7 +392,8 @@ fun MainApp() {
 @Composable
 fun ListsScreen(
     lists: MutableList<CustomList>,
-    onListsChanged: () -> Unit
+    onListsChanged: () -> Unit,
+    onSignOut: () -> Unit = {}
 ) {
     var showCreateDialog by remember { mutableStateOf(false) }
     var selectedList by remember { mutableStateOf<CustomList?>(null) }
@@ -208,8 +428,8 @@ fun ListsScreen(
         CreateListDialog(
             onDismiss = { showCreateDialog = false },
             onCreate = { name, items ->
-                lists.add(CustomList(name = name, items = items))
-                onListsChanged()
+                val newList = CustomList(name = name, items = items)
+                saveListToFirestore(newList)
                 showCreateDialog = false
             }
         )
@@ -227,17 +447,12 @@ fun ListsScreen(
                 randomResult = null
             },
             onDelete = {
-                lists.remove(selectedList)
-                onListsChanged()
+                deleteListFromFirestore(selectedList!!.id)
                 selectedList = null
                 randomResult = null
             },
             onEdit = { updatedList ->
-                val index = lists.indexOfFirst { it.id == updatedList.id }
-                if (index != -1) {
-                    lists[index] = updatedList
-                    onListsChanged()
-                }
+                saveListToFirestore(updatedList)
                 selectedList = updatedList
             }
         )
@@ -253,7 +468,7 @@ fun ListsScreen(
             horizontalArrangement = Arrangement.SpaceBetween,
             verticalAlignment = Alignment.CenterVertically
         ) {
-            Column {
+            Column(modifier = Modifier.weight(1f)) {
                 Text(
                     text = stringResource(R.string.app_name),
                     fontSize = 28.sp,
@@ -267,24 +482,40 @@ fun ListsScreen(
                 )
             }
             
-            Box(
-                modifier = Modifier
-                    .size(52.dp)
-                    .clip(RoundedCornerShape(16.dp))
-                    .background(
-                        Brush.linearGradient(
-                            colors = listOf(Color(0xFFe94560), Color(0xFFff6b8a))
-                        )
+            Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+                Box(
+                    modifier = Modifier
+                        .size(52.dp)
+                        .clip(RoundedCornerShape(16.dp))
+                        .background(Color(0xFF3a3a4a))
+                        .clickable { onSignOut() },
+                    contentAlignment = Alignment.Center
+                ) {
+                    Text(
+                        text = "👤",
+                        fontSize = 24.sp
                     )
-                    .clickable { showCreateDialog = true },
-                contentAlignment = Alignment.Center
-            ) {
-                Text(
-                    text = "+",
-                    fontSize = 28.sp,
-                    fontWeight = FontWeight.Light,
-                    color = Color.White
-                )
+                }
+                
+                Box(
+                    modifier = Modifier
+                        .size(52.dp)
+                        .clip(RoundedCornerShape(16.dp))
+                        .background(
+                            Brush.linearGradient(
+                                colors = listOf(Color(0xFFe94560), Color(0xFFff6b8a))
+                            )
+                        )
+                        .clickable { showCreateDialog = true },
+                    contentAlignment = Alignment.Center
+                ) {
+                    Text(
+                        text = "+",
+                        fontSize = 28.sp,
+                        fontWeight = FontWeight.Light,
+                        color = Color.White
+                    )
+                }
             }
         }
         
