@@ -91,12 +91,21 @@ import kotlin.random.Random
 import java.util.UUID
 import androidx.compose.ui.text.input.KeyboardCapitalization
 
+data class ListSection(
+    val id: String = UUID.randomUUID().toString(),
+    val name: String,
+    val items: List<String>
+)
+
 data class CustomList(
     val id: String = UUID.randomUUID().toString(),
     val name: String,
-    val items: List<String>,
+    val items: List<String> = emptyList(),
+    val sections: List<ListSection> = emptyList(),
     val color: Color = listColors.random()
-)
+) {
+    val hasSections: Boolean get() = sections.isNotEmpty()
+}
 
 val listColors = listOf(
     Color(0xFFe94560),
@@ -123,9 +132,18 @@ fun saveListToFirestore(list: CustomList) {
     val userId = FirebaseAuth.getInstance().currentUser?.uid ?: return
     val db = FirebaseFirestore.getInstance()
     
+    val sectionsData = list.sections.map { section ->
+        hashMapOf(
+            "id" to section.id,
+            "name" to section.name,
+            "items" to section.items
+        )
+    }
+    
     val data = hashMapOf(
         "name" to list.name,
         "items" to list.items,
+        "sections" to sectionsData,
         "color" to list.color.value.toLong()
     )
     
@@ -342,11 +360,21 @@ fun AuthenticatedApp(onSignOut: () -> Unit) {
                     for (doc in snapshot.documents) {
                         val data = doc.data ?: continue
                         try {
+                            val sections = (data["sections"] as? List<*>)?.mapNotNull { raw ->
+                                val map = raw as? Map<*, *> ?: return@mapNotNull null
+                                ListSection(
+                                    id = map["id"] as? String ?: UUID.randomUUID().toString(),
+                                    name = map["name"] as? String ?: "",
+                                    items = (map["items"] as? List<*>)?.filterIsInstance<String>() ?: emptyList()
+                                )
+                            } ?: emptyList()
+                            
                             customLists.add(
                                 CustomList(
                                     id = doc.id,
                                     name = data["name"] as? String ?: "",
                                     items = (data["items"] as? List<*>)?.filterIsInstance<String>() ?: emptyList(),
+                                    sections = sections,
                                     color = Color((data["color"] as? Long ?: 0L).toULong())
                                 )
                             )
@@ -396,7 +424,10 @@ fun ListsScreen(
     onSignOut: () -> Unit = {}
 ) {
     var showCreateDialog by remember { mutableStateOf(false) }
+    var showSignOutDialog by remember { mutableStateOf(false) }
     var selectedList by remember { mutableStateOf<CustomList?>(null) }
+    var selectedSectionedList by remember { mutableStateOf<CustomList?>(null) }
+    var selectedSectionId by remember { mutableStateOf<String?>(null) }
     var randomResult by remember { mutableStateOf<String?>(null) }
     var isRolling by remember { mutableStateOf(false) }
     val scope = rememberCoroutineScope()
@@ -427,10 +458,97 @@ fun ListsScreen(
     if (showCreateDialog) {
         CreateListDialog(
             onDismiss = { showCreateDialog = false },
-            onCreate = { name, items ->
-                val newList = CustomList(name = name, items = items)
+            onCreate = { newList ->
                 saveListToFirestore(newList)
                 showCreateDialog = false
+            }
+        )
+    }
+    
+    if (showSignOutDialog) {
+        Dialog(onDismissRequest = { showSignOutDialog = false }) {
+            Box(
+                modifier = Modifier
+                    .fillMaxWidth()
+                    .padding(20.dp)
+                    .clip(RoundedCornerShape(28.dp))
+                    .background(Color(0xFF252538))
+                    .padding(28.dp)
+            ) {
+                Column(horizontalAlignment = Alignment.CenterHorizontally) {
+                    Box(
+                        modifier = Modifier
+                            .size(72.dp)
+                            .clip(CircleShape)
+                            .background(Color(0xFF3a3a4a)),
+                        contentAlignment = Alignment.Center
+                    ) {
+                        Text(text = "👤", fontSize = 36.sp)
+                    }
+                    Spacer(modifier = Modifier.height(20.dp))
+                    Text(
+                        text = stringResource(R.string.sign_out_title),
+                        fontSize = 22.sp,
+                        fontWeight = FontWeight.Bold,
+                        color = Color.White
+                    )
+                    Spacer(modifier = Modifier.height(12.dp))
+                    Text(
+                        text = stringResource(R.string.sign_out_message),
+                        fontSize = 15.sp,
+                        color = Color(0xFF8b8b8b),
+                        textAlign = TextAlign.Center
+                    )
+                    Spacer(modifier = Modifier.height(28.dp))
+                    Row(
+                        modifier = Modifier.fillMaxWidth(),
+                        horizontalArrangement = Arrangement.spacedBy(12.dp)
+                    ) {
+                        Button(
+                            onClick = { showSignOutDialog = false },
+                            colors = ButtonDefaults.buttonColors(containerColor = Color(0xFF3a3a4a)),
+                            shape = RoundedCornerShape(14.dp),
+                            modifier = Modifier.weight(1f).height(52.dp)
+                        ) {
+                            Text(stringResource(R.string.button_cancel), color = Color.White, fontSize = 15.sp)
+                        }
+                        Button(
+                            onClick = {
+                                showSignOutDialog = false
+                                onSignOut()
+                            },
+                            colors = ButtonDefaults.buttonColors(containerColor = Color(0xFFe94560)),
+                            shape = RoundedCornerShape(14.dp),
+                            modifier = Modifier.weight(1f).height(52.dp)
+                        ) {
+                            Text(stringResource(R.string.sign_out), color = Color.White, fontSize = 15.sp, fontWeight = FontWeight.SemiBold)
+                        }
+                    }
+                }
+            }
+        }
+    }
+    
+    if (selectedSectionedList != null && selectedList == null) {
+        SectionsDialog(
+            list = selectedSectionedList!!,
+            onDismiss = { selectedSectionedList = null },
+            onSelectSection = { section ->
+                selectedSectionId = section.id
+                selectedList = CustomList(
+                    id = "${selectedSectionedList!!.id}_${section.id}",
+                    name = section.name,
+                    items = section.items,
+                    color = selectedSectionedList!!.color
+                )
+            },
+            onDelete = {
+                deleteListFromFirestore(selectedSectionedList!!.id)
+                selectedSectionedList = null
+            },
+            onEdit = { updatedList ->
+                saveListToFirestore(updatedList)
+                selectedSectionedList = updatedList
             }
         )
     }
@@ -444,15 +562,35 @@ fun ListsScreen(
             onRoll = { rollList(selectedList!!) },
             onDismiss = { 
                 selectedList = null
+                selectedSectionId = null
                 randomResult = null
             },
             onDelete = {
-                deleteListFromFirestore(selectedList!!.id)
+                if (selectedSectionId != null && selectedSectionedList != null) {
+                    val updatedSections = selectedSectionedList!!.sections.filter { it.id != selectedSectionId }
+                    val updatedParent = selectedSectionedList!!.copy(sections = updatedSections)
+                    saveListToFirestore(updatedParent)
+                    selectedSectionedList = updatedParent
+                } else {
+                    deleteListFromFirestore(selectedList!!.id)
+                }
                 selectedList = null
+                selectedSectionId = null
                 randomResult = null
             },
             onEdit = { updatedList ->
-                saveListToFirestore(updatedList)
+                if (selectedSectionId != null && selectedSectionedList != null) {
+                    val updatedSections = selectedSectionedList!!.sections.map { section ->
+                        if (section.id == selectedSectionId) {
+                            section.copy(name = updatedList.name, items = updatedList.items)
+                        } else section
+                    }
+                    val updatedParent = selectedSectionedList!!.copy(sections = updatedSections)
+                    saveListToFirestore(updatedParent)
+                    selectedSectionedList = updatedParent
+                } else {
+                    saveListToFirestore(updatedList)
+                }
                 selectedList = updatedList
             }
         )
@@ -488,7 +626,7 @@ fun ListsScreen(
                         .size(52.dp)
                         .clip(RoundedCornerShape(16.dp))
                         .background(Color(0xFF3a3a4a))
-                        .clickable { onSignOut() },
+                        .clickable { showSignOutDialog = true },
                     contentAlignment = Alignment.Center
                 ) {
                     Text(
@@ -562,7 +700,13 @@ fun ListsScreen(
                 items(lists) { list ->
                     ListCard(
                         list = list,
-                        onClick = { selectedList = list }
+                        onClick = {
+                            if (list.hasSections) {
+                                selectedSectionedList = list
+                            } else {
+                                selectedList = list
+                            }
+                        }
                     )
                 }
                 item {
@@ -608,7 +752,10 @@ fun ListCard(
                             .padding(horizontal = 8.dp, vertical = 4.dp)
                     ) {
                         Text(
-                            text = stringResource(R.string.items_count, list.items.size),
+                            text = if (list.hasSections)
+                                stringResource(R.string.sections_count, list.sections.size)
+                            else
+                                stringResource(R.string.items_count, list.items.size),
                             fontSize = 12.sp,
                             fontWeight = FontWeight.Medium,
                             color = list.color
@@ -616,7 +763,28 @@ fun ListCard(
                     }
                 }
                 
-                if (list.items.isNotEmpty()) {
+                if (list.hasSections) {
+                    Spacer(modifier = Modifier.height(10.dp))
+                    Column(verticalArrangement = Arrangement.spacedBy(2.dp)) {
+                        list.sections.take(3).forEach { section ->
+                            Text(
+                                text = "• ${section.name}",
+                                fontSize = 13.sp,
+                                color = Color(0xFF9b9b9b),
+                                maxLines = 1,
+                                overflow = TextOverflow.Ellipsis
+                            )
+                        }
+                        if (list.sections.size > 3) {
+                            Text(
+                                text = stringResource(R.string.more_items, list.sections.size - 3),
+                                fontSize = 12.sp,
+                                fontWeight = FontWeight.Medium,
+                                color = list.color.copy(alpha = 0.7f)
+                            )
+                        }
+                    }
+                } else if (list.items.isNotEmpty()) {
                     Spacer(modifier = Modifier.height(10.dp))
                     Column(verticalArrangement = Arrangement.spacedBy(2.dp)) {
                         list.items.take(2).forEach { item ->
@@ -654,7 +822,7 @@ fun ListCard(
                 contentAlignment = Alignment.Center
             ) {
                 Text(
-                    text = "🎲",
+                    text = if (list.hasSections) "📂" else "🎲",
                     fontSize = 28.sp
                 )
             }
@@ -701,11 +869,16 @@ fun StyledTextField(
 @Composable
 fun CreateListDialog(
     onDismiss: () -> Unit,
-    onCreate: (String, List<String>) -> Unit
+    onCreate: (CustomList) -> Unit
 ) {
     var listName by remember { mutableStateOf("") }
     var currentItem by remember { mutableStateOf("") }
+    var isSectioned by remember { mutableStateOf(false) }
     val items = remember { mutableStateListOf<String>() }
+    val sections = remember { mutableStateListOf<ListSection>() }
+    var currentSectionName by remember { mutableStateOf("") }
+    var editingSectionIndex by remember { mutableStateOf(-1) }
+    val sectionItems = remember { mutableStateListOf<String>() }
     val focusManager = LocalFocusManager.current
     val listState = rememberLazyListState()
     val canScrollDown by remember { derivedStateOf { listState.canScrollForward } }
@@ -747,8 +920,49 @@ fun CreateListDialog(
                     modifier = Modifier.fillMaxWidth()
                 )
                 
-                Spacer(modifier = Modifier.height(24.dp))
+                Spacer(modifier = Modifier.height(16.dp))
                 
+                Row(
+                    modifier = Modifier.fillMaxWidth(),
+                    horizontalArrangement = Arrangement.spacedBy(8.dp)
+                ) {
+                    listOf(false, true).forEach { sectioned ->
+                        val isSelected = isSectioned == sectioned
+                        Box(
+                            modifier = Modifier
+                                .weight(1f)
+                                .clip(RoundedCornerShape(12.dp))
+                                .background(if (isSelected) Color(0xFFe94560).copy(alpha = 0.2f) else Color(0xFF1a1a2e))
+                                .border(
+                                    width = if (isSelected) 2.dp else 0.dp,
+                                    color = if (isSelected) Color(0xFFe94560) else Color.Transparent,
+                                    shape = RoundedCornerShape(12.dp)
+                                )
+                                .clickable {
+                                    isSectioned = sectioned
+                                    items.clear()
+                                    sections.clear()
+                                    sectionItems.clear()
+                                    currentSectionName = ""
+                                    editingSectionIndex = -1
+                                }
+                                .padding(12.dp),
+                            contentAlignment = Alignment.Center
+                        ) {
+                            Text(
+                                text = if (sectioned) stringResource(R.string.list_type_sections) else stringResource(R.string.list_type_simple),
+                                fontSize = 13.sp,
+                                fontWeight = if (isSelected) FontWeight.Bold else FontWeight.Normal,
+                                color = if (isSelected) Color(0xFFe94560) else Color(0xFF6b6b7b),
+                                textAlign = TextAlign.Center
+                            )
+                        }
+                    }
+                }
+                
+                Spacer(modifier = Modifier.height(20.dp))
+                
+                if (!isSectioned) {
                 Row(
                     modifier = Modifier.fillMaxWidth(),
                     horizontalArrangement = Arrangement.SpaceBetween,
@@ -936,7 +1150,252 @@ fun CreateListDialog(
                     }
                 }
                 
+                } else {
+                    Text(
+                        text = stringResource(R.string.label_elements).uppercase(),
+                        fontSize = 12.sp,
+                        fontWeight = FontWeight.SemiBold,
+                        color = Color(0xFF6b6b7b),
+                        letterSpacing = 1.sp
+                    )
+                    Spacer(modifier = Modifier.height(8.dp))
+                    
+                    if (editingSectionIndex >= 0) {
+                        Text(
+                            text = "📝 ${sections.getOrNull(editingSectionIndex)?.name ?: ""}",
+                            fontSize = 14.sp,
+                            fontWeight = FontWeight.SemiBold,
+                            color = Color(0xFFe94560)
+                        )
+                        Spacer(modifier = Modifier.height(8.dp))
+                        
+                        Row(
+                            modifier = Modifier.fillMaxWidth(),
+                            verticalAlignment = Alignment.CenterVertically
+                        ) {
+                            Box(
+                                modifier = Modifier
+                                    .weight(1f)
+                                    .clip(RoundedCornerShape(14.dp))
+                                    .background(Color(0xFF1a1a2e))
+                                    .padding(16.dp)
+                            ) {
+                                if (currentItem.isEmpty()) {
+                                    Text(
+                                        text = stringResource(R.string.placeholder_write_element),
+                                        fontSize = 16.sp,
+                                        color = Color(0xFF5a5a6a)
+                                    )
+                                }
+                                BasicTextField(
+                                    value = currentItem,
+                                    onValueChange = { currentItem = it },
+                                    textStyle = TextStyle(color = Color.White, fontSize = 16.sp),
+                                    cursorBrush = SolidColor(Color(0xFFe94560)),
+                                    modifier = Modifier.fillMaxWidth(),
+                                    singleLine = true,
+                                    keyboardOptions = KeyboardOptions(
+                                        capitalization = KeyboardCapitalization.Sentences,
+                                        imeAction = ImeAction.Done
+                                    ),
+                                    keyboardActions = KeyboardActions(
+                                        onDone = {
+                                            if (currentItem.isNotBlank()) {
+                                                sectionItems.add(currentItem.trim())
+                                                currentItem = ""
+                                            }
+                                        }
+                                    )
+                                )
+                            }
+                            Spacer(modifier = Modifier.width(10.dp))
+                            Box(
+                                modifier = Modifier
+                                    .size(52.dp)
+                                    .clip(RoundedCornerShape(14.dp))
+                                    .background(
+                                        if (currentItem.isNotBlank()) Brush.linearGradient(listOf(Color(0xFF00b894), Color(0xFF00d9a5)))
+                                        else Brush.linearGradient(listOf(Color(0xFF3a3a4a), Color(0xFF3a3a4a)))
+                                    )
+                                    .clickable {
+                                        if (currentItem.isNotBlank()) {
+                                            sectionItems.add(currentItem.trim())
+                                            currentItem = ""
+                                        }
+                                    },
+                                contentAlignment = Alignment.Center
+                            ) {
+                                Text(text = "+", fontSize = 26.sp, fontWeight = FontWeight.Light, color = Color.White)
+                            }
+                        }
+                        
+                        if (sectionItems.isNotEmpty()) {
+                            Spacer(modifier = Modifier.height(8.dp))
+                            LazyColumn(modifier = Modifier.heightIn(max = 100.dp), verticalArrangement = Arrangement.spacedBy(4.dp)) {
+                                itemsIndexed(sectionItems.toList()) { idx, item ->
+                                    Row(
+                                        modifier = Modifier.fillMaxWidth().clip(RoundedCornerShape(8.dp)).background(Color(0xFF1a1a2e)).padding(10.dp),
+                                        horizontalArrangement = Arrangement.SpaceBetween,
+                                        verticalAlignment = Alignment.CenterVertically
+                                    ) {
+                                        Text(text = "• $item", color = Color.White, fontSize = 14.sp, modifier = Modifier.weight(1f))
+                                        Box(
+                                            modifier = Modifier.size(24.dp).clip(CircleShape).background(Color(0xFFe94560).copy(alpha = 0.15f)).clickable { sectionItems.removeAt(idx) },
+                                            contentAlignment = Alignment.Center
+                                        ) {
+                                            Text(text = "×", fontSize = 14.sp, fontWeight = FontWeight.Bold, color = Color(0xFFe94560))
+                                        }
+                                    }
+                                }
+                            }
+                        }
+                        
+                        Spacer(modifier = Modifier.height(8.dp))
+                        Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+                            Box(
+                                modifier = Modifier
+                                    .clip(RoundedCornerShape(10.dp))
+                                    .background(Color(0xFF3a3a4a))
+                                    .clickable {
+                                        sectionItems.clear()
+                                        currentItem = ""
+                                        editingSectionIndex = -1
+                                    }
+                                    .padding(horizontal = 14.dp, vertical = 10.dp)
+                            ) {
+                                Text(text = stringResource(R.string.button_cancel), fontSize = 13.sp, color = Color.White)
+                            }
+                            Box(
+                                modifier = Modifier
+                                    .clip(RoundedCornerShape(10.dp))
+                                    .background(Brush.linearGradient(listOf(Color(0xFF00b894), Color(0xFF00d9a5))))
+                                    .clickable {
+                                        if (editingSectionIndex >= 0 && editingSectionIndex < sections.size) {
+                                            sections[editingSectionIndex] = sections[editingSectionIndex].copy(items = sectionItems.toList())
+                                        }
+                                        sectionItems.clear()
+                                        currentItem = ""
+                                        editingSectionIndex = -1
+                                    }
+                                    .padding(horizontal = 14.dp, vertical = 10.dp)
+                            ) {
+                                Text(text = stringResource(R.string.button_save), fontSize = 13.sp, color = Color.White, fontWeight = FontWeight.SemiBold)
+                            }
+                        }
+                    } else {
+                        Row(
+                            modifier = Modifier.fillMaxWidth(),
+                            verticalAlignment = Alignment.CenterVertically
+                        ) {
+                            Box(
+                                modifier = Modifier
+                                    .weight(1f)
+                                    .clip(RoundedCornerShape(14.dp))
+                                    .background(Color(0xFF1a1a2e))
+                                    .padding(16.dp)
+                            ) {
+                                if (currentSectionName.isEmpty()) {
+                                    Text(
+                                        text = stringResource(R.string.section_name_placeholder),
+                                        fontSize = 16.sp,
+                                        color = Color(0xFF5a5a6a)
+                                    )
+                                }
+                                BasicTextField(
+                                    value = currentSectionName,
+                                    onValueChange = { currentSectionName = it },
+                                    textStyle = TextStyle(color = Color.White, fontSize = 16.sp),
+                                    cursorBrush = SolidColor(Color(0xFFe94560)),
+                                    modifier = Modifier.fillMaxWidth(),
+                                    singleLine = true,
+                                    keyboardOptions = KeyboardOptions(
+                                        capitalization = KeyboardCapitalization.Sentences,
+                                        imeAction = ImeAction.Done
+                                    ),
+                                    keyboardActions = KeyboardActions(
+                                        onDone = {
+                                            if (currentSectionName.isNotBlank()) {
+                                                sections.add(ListSection(name = currentSectionName.trim(), items = emptyList()))
+                                                currentSectionName = ""
+                                            }
+                                        }
+                                    )
+                                )
+                            }
+                            Spacer(modifier = Modifier.width(10.dp))
+                            Box(
+                                modifier = Modifier
+                                    .size(52.dp)
+                                    .clip(RoundedCornerShape(14.dp))
+                                    .background(
+                                        if (currentSectionName.isNotBlank()) Brush.linearGradient(listOf(Color(0xFF00b894), Color(0xFF00d9a5)))
+                                        else Brush.linearGradient(listOf(Color(0xFF3a3a4a), Color(0xFF3a3a4a)))
+                                    )
+                                    .clickable {
+                                        if (currentSectionName.isNotBlank()) {
+                                            sections.add(ListSection(name = currentSectionName.trim(), items = emptyList()))
+                                            currentSectionName = ""
+                                        }
+                                    },
+                                contentAlignment = Alignment.Center
+                            ) {
+                                Text(text = "+", fontSize = 26.sp, fontWeight = FontWeight.Light, color = Color.White)
+                            }
+                        }
+                        
+                        if (sections.isNotEmpty()) {
+                            Spacer(modifier = Modifier.height(12.dp))
+                            LazyColumn(modifier = Modifier.heightIn(max = 200.dp), verticalArrangement = Arrangement.spacedBy(6.dp)) {
+                                items(sections.size) { idx ->
+                                    val section = sections[idx]
+                                    Row(
+                                        modifier = Modifier
+                                            .fillMaxWidth()
+                                            .clip(RoundedCornerShape(10.dp))
+                                            .background(Color(0xFF1a1a2e))
+                                            .clickable {
+                                                sectionItems.clear()
+                                                sectionItems.addAll(section.items)
+                                                editingSectionIndex = idx
+                                            }
+                                            .padding(14.dp),
+                                        horizontalArrangement = Arrangement.SpaceBetween,
+                                        verticalAlignment = Alignment.CenterVertically
+                                    ) {
+                                        Column(modifier = Modifier.weight(1f)) {
+                                            Text(text = section.name, color = Color.White, fontSize = 15.sp, fontWeight = FontWeight.SemiBold)
+                                            Text(
+                                                text = stringResource(R.string.section_elements, section.items.size),
+                                                fontSize = 12.sp,
+                                                color = Color(0xFF6b6b7b)
+                                            )
+                                        }
+                                        Box(
+                                            modifier = Modifier
+                                                .size(28.dp)
+                                                .clip(CircleShape)
+                                                .background(Color(0xFFe94560).copy(alpha = 0.15f))
+                                                .clickable {
+                                                    val removeIdx = idx
+                                                    sections.removeAt(removeIdx)
+                                                },
+                                            contentAlignment = Alignment.Center
+                                        ) {
+                                            Text(text = "×", fontSize = 18.sp, fontWeight = FontWeight.Bold, color = Color(0xFFe94560))
+                                        }
+                                    }
+                                }
+                            }
+                        }
+                    }
+                }
+                
                 Spacer(modifier = Modifier.height(28.dp))
+                
+                val canCreate = listName.isNotBlank() && (
+                    (!isSectioned && items.isNotEmpty()) ||
+                    (isSectioned && sections.isNotEmpty())
+                )
                 
                 Row(
                     modifier = Modifier.fillMaxWidth(),
@@ -952,13 +1411,28 @@ fun CreateListDialog(
                     }
                     Button(
                         onClick = { 
-                            if (listName.isNotBlank() && items.isNotEmpty()) {
-                                onCreate(listName.trim(), items.toList())
+                            if (isSectioned && editingSectionIndex >= 0 && editingSectionIndex < sections.size) {
+                                sections[editingSectionIndex] = sections[editingSectionIndex].copy(items = sectionItems.toList())
+                                sectionItems.clear()
+                                currentItem = ""
+                                editingSectionIndex = -1
+                            }
+                            
+                            val finalCanCreate = listName.isNotBlank() && (
+                                (!isSectioned && items.isNotEmpty()) ||
+                                (isSectioned && sections.isNotEmpty())
+                            )
+                            
+                            if (finalCanCreate) {
+                                if (isSectioned) {
+                                    onCreate(CustomList(name = listName.trim(), sections = sections.toList()))
+                                } else {
+                                    onCreate(CustomList(name = listName.trim(), items = items.toList()))
+                                }
                             }
                         },
                         colors = ButtonDefaults.buttonColors(
-                            containerColor = if (listName.isNotBlank() && items.isNotEmpty()) 
-                                Color(0xFFe94560) else Color(0xFF3a3a4a)
+                            containerColor = if (canCreate) Color(0xFFe94560) else Color(0xFF3a3a4a)
                         ),
                         shape = RoundedCornerShape(14.dp),
                         modifier = Modifier.weight(1f).height(52.dp)
@@ -1038,6 +1512,300 @@ fun DeleteConfirmDialog(
                         modifier = Modifier.weight(1f).height(52.dp)
                     ) {
                         Text(stringResource(R.string.button_delete), color = Color.White, fontSize = 15.sp, fontWeight = FontWeight.SemiBold)
+                    }
+                }
+            }
+        }
+    }
+}
+
+@Composable
+fun SectionsDialog(
+    list: CustomList,
+    onDismiss: () -> Unit,
+    onSelectSection: (ListSection) -> Unit,
+    onDelete: () -> Unit,
+    onEdit: (CustomList) -> Unit
+) {
+    var showDeleteConfirm by remember { mutableStateOf(false) }
+    var isEditing by remember { mutableStateOf(false) }
+    var editName by remember(list.id, list.name) { mutableStateOf(list.name) }
+    var newSectionName by remember { mutableStateOf("") }
+    val editSections = remember(list.id, list.sections) { mutableStateListOf<ListSection>().also { it.addAll(list.sections) } }
+    
+    if (showDeleteConfirm) {
+        DeleteConfirmDialog(
+            listName = list.name,
+            onConfirm = onDelete,
+            onDismiss = { showDeleteConfirm = false }
+        )
+    }
+    
+    Dialog(
+        onDismissRequest = {
+            if (isEditing && editName.isNotBlank()) {
+                onEdit(list.copy(name = editName.trim(), sections = editSections.toList()))
+            }
+            onDismiss()
+        },
+        properties = DialogProperties(usePlatformDefaultWidth = false)
+    ) {
+        Box(
+            modifier = Modifier
+                .fillMaxWidth()
+                .padding(20.dp)
+                .clip(RoundedCornerShape(28.dp))
+                .background(Color(0xFF252538))
+                .padding(24.dp)
+        ) {
+            Column {
+                Row(
+                    modifier = Modifier.fillMaxWidth(),
+                    horizontalArrangement = Arrangement.SpaceBetween,
+                    verticalAlignment = Alignment.CenterVertically
+                ) {
+                    if (isEditing) {
+                        Box(
+                            modifier = Modifier
+                                .weight(1f)
+                                .clip(RoundedCornerShape(12.dp))
+                                .background(Color(0xFF1a1a2e))
+                                .padding(14.dp)
+                        ) {
+                            BasicTextField(
+                                value = editName,
+                                onValueChange = { editName = it },
+                                textStyle = TextStyle(
+                                    color = Color.White,
+                                    fontSize = 20.sp,
+                                    fontWeight = FontWeight.Bold
+                                ),
+                                cursorBrush = SolidColor(list.color),
+                                modifier = Modifier.fillMaxWidth(),
+                                singleLine = true,
+                                keyboardOptions = KeyboardOptions(capitalization = KeyboardCapitalization.Sentences)
+                            )
+                        }
+                    } else {
+                        Text(
+                            text = list.name,
+                            fontSize = 24.sp,
+                            fontWeight = FontWeight.Bold,
+                            color = Color.White,
+                            modifier = Modifier.weight(1f)
+                        )
+                    }
+                    
+                    Spacer(modifier = Modifier.width(12.dp))
+                    
+                    Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+                        if (isEditing) {
+                            Box(
+                                modifier = Modifier
+                                    .clip(RoundedCornerShape(10.dp))
+                                    .background(
+                                        Brush.linearGradient(listOf(Color(0xFF00b894), Color(0xFF00d9a5)))
+                                    )
+                                    .clickable {
+                                        if (editName.isNotBlank()) {
+                                            onEdit(list.copy(name = editName.trim(), sections = editSections.toList()))
+                                        }
+                                        isEditing = false
+                                    }
+                                    .padding(horizontal = 14.dp, vertical = 10.dp)
+                            ) {
+                                Text(
+                                    text = stringResource(R.string.button_save),
+                                    fontSize = 14.sp,
+                                    fontWeight = FontWeight.SemiBold,
+                                    color = Color.White
+                                )
+                            }
+                        } else {
+                            Box(
+                                modifier = Modifier
+                                    .size(44.dp)
+                                    .clip(RoundedCornerShape(12.dp))
+                                    .background(Color(0xFF3a3a4a))
+                                    .clickable { isEditing = true },
+                                contentAlignment = Alignment.Center
+                            ) {
+                                Text(text = "✏️", fontSize = 20.sp)
+                            }
+                        }
+                        Box(
+                            modifier = Modifier
+                                .size(44.dp)
+                                .clip(RoundedCornerShape(12.dp))
+                                .background(Color(0xFFe94560).copy(alpha = 0.15f))
+                                .clickable { showDeleteConfirm = true },
+                            contentAlignment = Alignment.Center
+                        ) {
+                            Text(text = "🗑️", fontSize = 20.sp)
+                        }
+                        Box(
+                            modifier = Modifier
+                                .size(44.dp)
+                                .clip(RoundedCornerShape(12.dp))
+                                .background(Color(0xFF3a3a4a))
+                                .clickable {
+                                    if (isEditing && editName.isNotBlank()) {
+                                        onEdit(list.copy(name = editName.trim(), sections = editSections.toList()))
+                                    }
+                                    onDismiss()
+                                },
+                            contentAlignment = Alignment.Center
+                        ) {
+                            Text(
+                                text = "✕",
+                                fontSize = 20.sp,
+                                fontWeight = FontWeight.Bold,
+                                color = Color(0xFF8b8b8b)
+                            )
+                        }
+                    }
+                }
+                
+                Spacer(modifier = Modifier.height(8.dp))
+                
+                Text(
+                    text = stringResource(R.string.sections_count, if (isEditing) editSections.size else list.sections.size),
+                    fontSize = 13.sp,
+                    color = Color(0xFF6b6b7b)
+                )
+                
+                Spacer(modifier = Modifier.height(16.dp))
+                
+                if (isEditing) {
+                    Row(
+                        modifier = Modifier.fillMaxWidth(),
+                        verticalAlignment = Alignment.CenterVertically
+                    ) {
+                        Box(
+                            modifier = Modifier
+                                .weight(1f)
+                                .clip(RoundedCornerShape(12.dp))
+                                .background(Color(0xFF1a1a2e))
+                                .padding(14.dp)
+                        ) {
+                            if (newSectionName.isEmpty()) {
+                                Text(
+                                    text = stringResource(R.string.section_name_placeholder),
+                                    fontSize = 15.sp,
+                                    color = Color(0xFF5a5a6a)
+                                )
+                            }
+                            BasicTextField(
+                                value = newSectionName,
+                                onValueChange = { newSectionName = it },
+                                textStyle = TextStyle(color = Color.White, fontSize = 15.sp),
+                                cursorBrush = SolidColor(list.color),
+                                modifier = Modifier.fillMaxWidth(),
+                                singleLine = true,
+                                keyboardOptions = KeyboardOptions(
+                                    capitalization = KeyboardCapitalization.Sentences,
+                                    imeAction = ImeAction.Done
+                                ),
+                                keyboardActions = KeyboardActions(
+                                    onDone = {
+                                        if (newSectionName.isNotBlank()) {
+                                            editSections.add(ListSection(name = newSectionName.trim(), items = emptyList()))
+                                            newSectionName = ""
+                                        }
+                                    }
+                                )
+                            )
+                        }
+                        Spacer(modifier = Modifier.width(10.dp))
+                        
+                        val addBg = if (newSectionName.isNotBlank())
+                            Brush.linearGradient(listOf(Color(0xFF00b894), Color(0xFF00d9a5)))
+                        else Brush.linearGradient(listOf(Color(0xFF3a3a4a), Color(0xFF3a3a4a)))
+                        
+                        Box(
+                            modifier = Modifier
+                                .size(48.dp)
+                                .clip(RoundedCornerShape(12.dp))
+                                .background(addBg)
+                                .clickable {
+                                    if (newSectionName.isNotBlank()) {
+                                        editSections.add(ListSection(name = newSectionName.trim(), items = emptyList()))
+                                        newSectionName = ""
+                                    }
+                                },
+                            contentAlignment = Alignment.Center
+                        ) {
+                            Text(text = "+", fontSize = 24.sp, color = Color.White, fontWeight = FontWeight.Light)
+                        }
+                    }
+                    Spacer(modifier = Modifier.height(12.dp))
+                }
+                
+                LazyColumn(
+                    modifier = Modifier.heightIn(max = 350.dp),
+                    verticalArrangement = Arrangement.spacedBy(8.dp)
+                ) {
+                    val displaySections = if (isEditing) editSections.toList() else list.sections
+                    itemsIndexed(displaySections) { index, section ->
+                        Box(
+                            modifier = Modifier
+                                .fillMaxWidth()
+                                .clip(RoundedCornerShape(16.dp))
+                                .background(Color(0xFF1a1a2e))
+                                .then(
+                                    if (!isEditing) Modifier.clickable { onSelectSection(section) }
+                                    else Modifier
+                                )
+                                .padding(16.dp)
+                        ) {
+                            Row(
+                                modifier = Modifier.fillMaxWidth(),
+                                horizontalArrangement = Arrangement.SpaceBetween,
+                                verticalAlignment = Alignment.CenterVertically
+                            ) {
+                                Column(modifier = Modifier.weight(1f)) {
+                                    Text(
+                                        text = section.name,
+                                        fontSize = 16.sp,
+                                        fontWeight = FontWeight.SemiBold,
+                                        color = Color.White
+                                    )
+                                    Spacer(modifier = Modifier.height(4.dp))
+                                    Text(
+                                        text = stringResource(R.string.section_elements, section.items.size),
+                                        fontSize = 12.sp,
+                                        color = list.color
+                                    )
+                                }
+                                if (isEditing) {
+                                    Box(
+                                        modifier = Modifier
+                                            .size(30.dp)
+                                            .clip(CircleShape)
+                                            .background(Color(0xFFe94560).copy(alpha = 0.15f))
+                                            .clickable { editSections.removeAt(index) },
+                                        contentAlignment = Alignment.Center
+                                    ) {
+                                        Text(
+                                            text = "×",
+                                            fontSize = 18.sp,
+                                            fontWeight = FontWeight.Bold,
+                                            color = Color(0xFFe94560)
+                                        )
+                                    }
+                                } else {
+                                    Box(
+                                        modifier = Modifier
+                                            .size(40.dp)
+                                            .clip(RoundedCornerShape(12.dp))
+                                            .background(list.color.copy(alpha = 0.2f)),
+                                        contentAlignment = Alignment.Center
+                                    ) {
+                                        Text(text = "🎲", fontSize = 20.sp)
+                                    }
+                                }
+                            }
+                        }
                     }
                 }
             }
@@ -1176,6 +1944,21 @@ fun ListDetailDialog(
                             contentAlignment = Alignment.Center
                         ) {
                             Text(text = "🗑️", fontSize = 20.sp)
+                        }
+                        Box(
+                            modifier = Modifier
+                                .size(44.dp)
+                                .clip(RoundedCornerShape(12.dp))
+                                .background(Color(0xFF3a3a4a))
+                                .clickable { saveChangesAndClose() },
+                            contentAlignment = Alignment.Center
+                        ) {
+                            Text(
+                                text = "✕",
+                                fontSize = 20.sp,
+                                fontWeight = FontWeight.Bold,
+                                color = Color(0xFF8b8b8b)
+                            )
                         }
                     }
                 }

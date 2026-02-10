@@ -27,4 +27,13 @@
     <string name="sign_out">Sign out</string>
     <string name="signing_in">Signing in…</string>
     <string name="sign_in_error">Sign-in failed. Please try again.</string>
+    <string name="sign_out_title">Sign out?</string>
+    <string name="sign_out_message">You will need to sign in again to access your lists.</string>
+    <string name="sections_count">%1$d sections</string>
+    <string name="list_type_simple">Simple list</string>
+    <string name="list_type_sections">List with sections</string>
+    <string name="new_section">New section</string>
+    <string name="section_name_placeholder">E.g.: January</string>
+    <string name="add_section">Add section</string>
+    <string name="section_elements">%1$d elements</string>
 </resources>

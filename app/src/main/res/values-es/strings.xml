@@ -27,4 +27,13 @@
     <string name="sign_out">Cerrar sesión</string>
     <string name="signing_in">Iniciando sesión…</string>
     <string name="sign_in_error">Error al iniciar sesión. Inténtalo de nuevo.</string>
+    <string name="sign_out_title">¿Cerrar sesión?</string>
+    <string name="sign_out_message">Tendrás que iniciar sesión de nuevo para acceder a tus listas.</string>
+    <string name="sections_count">%1$d apartados</string>
+    <string name="list_type_simple">Lista simple</string>
+    <string name="list_type_sections">Lista con apartados</string>
+    <string name="new_section">Nuevo apartado</string>
+    <string name="section_name_placeholder">Ej: Enero</string>
+    <string name="add_section">Añadir apartado</string>
+    <string name="section_elements">%1$d elementos</string>
 </resources>

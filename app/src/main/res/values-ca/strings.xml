@@ -27,4 +27,13 @@
     <string name="sign_out">Tanca sessió</string>
     <string name="signing_in">Iniciant sessió…</string>
     <string name="sign_in_error">Error d\'inici de sessió. Torna-ho a provar.</string>
+    <string name="sign_out_title">Tancar sessió?</string>
+    <string name="sign_out_message">Hauràs d\'iniciar sessió de nou per accedir a les teves llistes.</string>
+    <string name="sections_count">%1$d apartats</string>
+    <string name="list_type_simple">Llista simple</string>
+    <string name="list_type_sections">Llista amb apartats</string>
+    <string name="new_section">Nou apartat</string>
+    <string name="section_name_placeholder">Ex: Gener</string>
+    <string name="add_section">Afegir apartat</string>
+    <string name="section_elements">%1$d elements</string>
 </resources>

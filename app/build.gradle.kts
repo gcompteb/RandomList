@@ -6,14 +6,14 @@ plugins {
 
 android {
     namespace = "com.randomlist"
-    compileSdk = 34
+    compileSdk = 35
 
     defaultConfig {
         applicationId = "com.randomlist"
         minSdk = 24
-        targetSdk = 34
-        versionCode = 1
-        versionName = "1.0"
+        targetSdk = 35
+        versionCode = 4
+        versionName = "1.1.0"
 
         vectorDrawables {
             useSupportLibrary = true
